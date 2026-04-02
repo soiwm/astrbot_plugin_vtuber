@@ -4,10 +4,9 @@ Live2D 模型配置和表情映射
 """
 
 import json
-import logging
 import os
 
-logger = logging.getLogger(__name__)
+from astrbot.api import logger
 
 
 class Live2dModel:

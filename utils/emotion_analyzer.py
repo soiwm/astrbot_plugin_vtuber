@@ -5,11 +5,11 @@ Reference: astrbot_plugin_emotionai_pro
 """
 
 import asyncio
-import logging
+import json
 import re
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from astrbot.api import logger
 
 EMOTION_DIMENSIONS = [
     "joy",
@@ -291,7 +291,7 @@ class EmotionAnalyzer:
                 if asyncio.iscoroutinefunction(provider.text_chat):
                     result = await provider.text_chat(prompt)
                 else:
-                    result = provider.text_chat(prompt)
+                    result = await asyncio.to_thread(provider.text_chat, prompt)
                 return self._extract_text(result)
 
             if hasattr(provider, "chat_completion"):
@@ -299,7 +299,9 @@ class EmotionAnalyzer:
                 if asyncio.iscoroutinefunction(provider.chat_completion):
                     result = await provider.chat_completion(messages=messages)
                 else:
-                    result = provider.chat_completion(messages=messages)
+                    result = await asyncio.to_thread(
+                        provider.chat_completion, messages=messages
+                    )
                 return self._extract_text(result)
 
         except Exception as e:
@@ -353,8 +355,6 @@ Rules:
         try:
             json_match = re.search(r"\{[^}]+\}", text, re.DOTALL)
             if json_match:
-                import json
-
                 data = json.loads(json_match.group())
                 result = {}
                 for emotion in EMOTION_DIMENSIONS:

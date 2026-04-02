@@ -3,23 +3,11 @@
 从 Open-LLM-VTuber 移植并简化
 """
 
-import logging
-import os
-import sys
+from astrbot.api import logger
 
-# 支持两种导入方式
-try:
-    from ..conversations.tts_manager import SimpleTTSEngine, TTSTaskManager
-    from ..conversations.types import WebSocketSend
-    from .live2d_model import Live2dModel
-except ImportError:
-    # 绝对导入模式（独立运行时）
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from conversations.tts_manager import SimpleTTSEngine, TTSTaskManager
-    from conversations.types import WebSocketSend
-    from core.live2d_model import Live2dModel
-
-logger = logging.getLogger(__name__)
+from ..conversations.tts_manager import SimpleTTSEngine, TTSTaskManager
+from ..conversations.types import WebSocketSend
+from .live2d_model import Live2dModel
 
 
 class ServiceContext:

@@ -436,20 +436,28 @@ class VTuberWebSocketServer:
                 model_dict_path = self._plugin_dir / "model_dict.json"
         else:
             model_dict_path = self._plugin_dir / "model_dict.json"
-        
+
         if model_dict_path.exists():
             try:
                 with open(model_dict_path, encoding="utf-8") as f:
                     self._model_dict = json.load(f)
-                logger.info(f"Loaded {len(self._model_dict)} Live2D models from {model_dict_path}")
+                logger.info(
+                    f"Loaded {len(self._model_dict)} Live2D models from {model_dict_path}"
+                )
             except Exception as e:
                 logger.error(f"Error loading model_dict.json: {e}")
 
     def _find_live2d_models_dir(self) -> Path | None:
         possible_paths = [
             self._plugin_dir.parent.parent / "live2d-models",
-            Path("d:/AstrBot-dev/live2d-models"),
+            self._plugin_dir / "live2d-models",
         ]
+        if self.models_path:
+            custom_path = Path(self.models_path)
+            if not custom_path.is_absolute():
+                custom_path = self._plugin_dir / self.models_path
+            if custom_path.exists() and custom_path.is_dir():
+                possible_paths.insert(0, custom_path)
         for path in possible_paths:
             if path.exists() and path.is_dir():
                 return path

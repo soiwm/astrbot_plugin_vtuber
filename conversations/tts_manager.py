@@ -4,17 +4,17 @@ TTS 任务管理器 - 管理 TTS 任务并确保有序发送到前端
 """
 
 import asyncio
-import logging
+import json
 import re
 import uuid
 from datetime import datetime
+
+from astrbot.api import logger
 
 from ..agent.output_types import Actions, DisplayText
 from ..core.live2d_model import Live2dModel
 from ..utils.stream_audio import prepare_audio_payload
 from .types import WebSocketSend
-
-logger = logging.getLogger(__name__)
 
 
 class SimpleTTSEngine:
@@ -124,17 +124,10 @@ class TTSTaskManager:
 
                 while self._next_sequence_to_send in buffered_payloads:
                     next_payload = buffered_payloads.pop(self._next_sequence_to_send)
-                    await websocket_send(
-                        asyncio.get_event_loop().run_until_complete(
-                            asyncio.to_thread(lambda: str(next_payload))
-                        )
-                    )
                     try:
-                        import json
-
                         await websocket_send(json.dumps(next_payload))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.error(f"Error sending payload: {e}")
                     self._next_sequence_to_send += 1
 
                 self._payload_queue.task_done()

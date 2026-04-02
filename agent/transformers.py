@@ -3,10 +3,11 @@
 从 Open-LLM-VTuber 移植并简化
 """
 
-import logging
 from collections.abc import AsyncIterator, Callable
 from functools import wraps
 from typing import Any
+
+from astrbot.api import logger
 
 from ..core.live2d_model import Live2dModel
 from ..utils.sentence_divider import (
@@ -16,8 +17,6 @@ from ..utils.sentence_divider import (
 )
 from ..utils.tts_preprocessor import tts_filter as filter_text
 from .output_types import Actions, DisplayText, SentenceOutput
-
-logger = logging.getLogger(__name__)
 
 
 def sentence_divider(

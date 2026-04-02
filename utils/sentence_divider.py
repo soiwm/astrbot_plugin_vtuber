@@ -3,14 +3,11 @@
 从 Open-LLM-VTuber 移植，移除了不必要的依赖
 """
 
-import logging
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 # Constants for additional checks
 COMMAS = [
