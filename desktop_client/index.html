@@ -1,0 +1,1401 @@
+﻿﻿﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AstrBot VTuber</title>
+    <script src="node_modules/pixi.js/dist/browser/pixi.min.js"></script>
+    <script src="public/libs/live2dcubismcore.min.js"></script>
+    <script src="node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        overflow: hidden;
+        font-family: "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      #stage {
+        position: fixed;
+        inset: 0;
+        pointer-events: auto;
+      }
+
+      #stage canvas {
+        -webkit-app-region: no-drag;
+      }
+
+      #drag-handle {
+        position: fixed;
+        inset: 0;
+        -webkit-app-region: drag;
+        pointer-events: none;
+        z-index: 10;
+      }
+
+      body.resize-mode-active #stage {
+        cursor: nwse-resize;
+      }
+
+      body.resize-mode-active::before {
+        content: "";
+        position: fixed;
+        inset: 6px;
+        z-index: 29;
+        border: 2px solid rgba(110, 231, 255, 0.92);
+        border-radius: 18px;
+        box-shadow: 0 0 0 1px rgba(12, 22, 34, 0.82), inset 0 0 0 1px rgba(12, 22, 34, 0.72);
+        pointer-events: none;
+      }
+
+      #resize-mode-close {
+        display: none;
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        z-index: 30;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(10, 14, 24, 0.72);
+        color: #f4f8ff;
+        font-size: 11px;
+        letter-spacing: 0.05em;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+        cursor: pointer;
+        -webkit-app-region: no-drag;
+      }
+
+      body.resize-mode-active #resize-mode-close {
+        display: block;
+      }
+
+      #resize-mode-close:hover {
+        background: rgba(18, 28, 44, 0.86);
+      }
+
+      #resize-mode-close:active {
+        transform: translateY(1px);
+      }
+
+      #stage-content {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+
+      #live2d-placeholder {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        text-align: center;
+        color: #e8f0ff;
+        font-size: 14px;
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+        pointer-events: auto;
+      }
+
+      #live2d-avatar {
+        font-size: 48px;
+        margin-bottom: 8px;
+      }
+
+      .model-info {
+        font-size: 12px;
+        opacity: 0.7;
+        margin-top: 8px;
+      }
+
+      #loading-overlay {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 14, 24, 0.85);
+        z-index: 100;
+      }
+
+      #loading-overlay.show {
+        display: flex;
+      }
+
+      #loading-content {
+        text-align: center;
+        color: #e8f0ff;
+      }
+
+      #loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(255, 255, 255, 0.1);
+        border-top-color: #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 12px;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      #loading-text {
+        font-size: 14px;
+        margin-bottom: 8px;
+      }
+
+      #subtitle-layer {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 20;
+      }
+
+      #subtitle {
+        position: absolute;
+        left: 50%;
+        top: 15%;
+        transform: translateX(-50%);
+        padding: 8px 16px;
+        background: rgba(10, 14, 24, 0.85);
+        color: #ffffff;
+        font-size: 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        backdrop-filter: blur(6px);
+        max-width: 80%;
+        text-align: center;
+        opacity: 0;
+        transition: opacity 200ms ease;
+      }
+
+      #subtitle.visible {
+        opacity: 1;
+      }
+
+      #bubble-layer {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        z-index: 22;
+      }
+
+      #bubble {
+        opacity: 0;
+        transform: translateY(10px) scale(0.982);
+        transition: opacity 140ms ease-out, transform 140ms cubic-bezier(0.22, 0.86, 0.28, 1);
+        position: absolute;
+        left: 0;
+        top: 0;
+        color: #ffffff;
+        background: rgba(16, 22, 36, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        border-radius: 16px;
+        padding: 10px 14px;
+        line-height: 1.45;
+        font-size: 15px;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+        white-space: pre-wrap;
+        word-break: break-word;
+        width: max-content;
+        max-width: min(58vw, 360px);
+      }
+
+      #bubble.visible {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      #settings-panel {
+        display: none;
+        position: fixed;
+        right: 12px;
+        top: 12px;
+        z-index: 50;
+        width: 280px;
+        background: rgba(10, 14, 24, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 16px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+        -webkit-app-region: no-drag;
+      }
+
+      #settings-panel.visible {
+        display: block;
+      }
+
+      .settings-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        color: #e8f0ff;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .settings-header button {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #e8f0ff;
+        border-radius: 6px;
+        padding: 4px 8px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+
+      .settings-header button:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .settings-content {
+        padding: 12px 16px;
+      }
+
+      .settings-section {
+        margin-bottom: 16px;
+      }
+
+      .settings-section:last-child {
+        margin-bottom: 0;
+      }
+
+      .settings-section-title {
+        font-size: 12px;
+        color: #b7c6e9;
+        margin-bottom: 8px;
+        letter-spacing: 0.03em;
+      }
+
+      .settings-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        gap: 12px;
+      }
+
+      .settings-row label {
+        font-size: 12px;
+        color: #e8f0ff;
+      }
+
+      .settings-row input[type="range"] {
+        flex: 1;
+      }
+
+      .settings-row span {
+        font-size: 11px;
+        color: #b7c6e9;
+        min-width: 40px;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="drag-handle"></div>
+
+    <div id="stage">
+      <div id="stage-content">
+        <div id="live2d-placeholder">
+          <div id="live2d-avatar">🎭</div>
+          <div>点击打开聊天</div>
+          <div class="model-info" id="model-info">拖拽移动位置</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="loading-overlay">
+      <div id="loading-content">
+        <div id="loading-spinner"></div>
+        <div id="loading-text">正在加载 Live2D 模型...</div>
+        <div id="model-info"></div>
+      </div>
+    </div>
+
+    <button id="resize-mode-close" type="button">关闭调整模式</button>
+
+    <div id="subtitle-layer">
+      <div id="subtitle"></div>
+    </div>
+
+    <div id="bubble-layer">
+      <div id="bubble"></div>
+    </div>
+
+    <div id="settings-panel">
+      <div class="settings-header">
+        <span>设置</span>
+        <button id="settings-close" type="button">关闭</button>
+      </div>
+      <div class="settings-content">
+        <div class="settings-section">
+          <div class="settings-section-title">字幕设置</div>
+          <div class="settings-row">
+            <label>启用字幕</label>
+            <input type="checkbox" id="subtitle-enabled" checked>
+          </div>
+          <div class="settings-row">
+            <label>X 偏移</label>
+            <input type="range" id="subtitle-offset-x" min="-200" max="200" value="0">
+            <span id="subtitle-offset-x-value">0</span>
+          </div>
+          <div class="settings-row">
+            <label>Y 偏移</label>
+            <input type="range" id="subtitle-offset-y" min="-200" max="200" value="-50">
+            <span id="subtitle-offset-y-value">-50</span>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">模型设置</div>
+          <div class="settings-row">
+            <label>X 偏移</label>
+            <input type="range" id="model-offset-x" min="-200" max="200" value="0">
+            <span id="model-offset-x-value">0</span>
+          </div>
+          <div class="settings-row">
+            <label>Y 偏移</label>
+            <input type="range" id="model-offset-y" min="-200" max="200" value="0">
+            <span id="model-offset-y-value">0</span>
+          </div>
+          <div class="settings-row">
+            <label>缩放</label>
+            <input type="range" id="model-scale" min="50" max="200" value="150">
+            <span id="model-scale-value">150%</span>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">连接设置</div>
+          <div class="settings-row">
+            <label>WebSocket 地址</label>
+            <input type="text" id="ws-server-url" style="flex:1; padding:4px 8px; border-radius:4px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.1); color:#e8f0ff;" placeholder="ws://localhost:6191/client-ws">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">语音设置</div>
+          <div class="settings-row">
+            <label>自动播放语音</label>
+            <input type="checkbox" id="auto-play-audio" checked>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function() {
+        const electronAPI = window.electronAPI;
+        const bridge = window.desktopLive2dBridge;
+        const stage = document.getElementById('stage');
+        const stageContent = document.getElementById('stage-content');
+        const live2dPlaceholder = document.getElementById('live2d-placeholder');
+        const modelInfoEl = document.getElementById('model-info');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+        const subtitle = document.getElementById('subtitle');
+        const resizeModeClose = document.getElementById('resize-mode-close');
+        const settingsPanel = document.getElementById('settings-panel');
+        const settingsClose = document.getElementById('settings-close');
+
+        let pixiApp = null;
+        let live2dModel = null;
+        let live2dCanvas = null;
+        let modelBoundsInfo = null;
+        let ws = null;
+        let clientUid = null;
+        let modelInfo = null;
+        let modelServerUrl = null;
+        let audioElement = null;
+        let audioContext = null;
+        let analyser = null;
+        let audioSource = null;
+        let isMouthAnimating = false;
+        let mouthAnimationId = null;
+        let dataArray = null;
+        let resizeModeEnabled = false;
+        let isDragging = false;
+        let hasMoved = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        const MOVE_THRESHOLD = 3;
+        let subtitleHideTimer = null;
+
+        let settingsState = {
+          subtitleEnabled: true,
+          subtitleOffsetX: 0,
+          subtitleOffsetY: -50,
+          modelOffsetX: 0,
+          modelOffsetY: 0,
+          modelScale: 150,
+          autoPlayAudio: true,
+          wsServerUrl: 'ws://localhost:6191/client-ws'
+        };
+
+        function loadSettings() {
+          try {
+            const saved = localStorage.getItem('vtuber-settings');
+            if (saved) {
+              settingsState = { ...settingsState, ...JSON.parse(saved) };
+            }
+          } catch (e) {}
+        }
+
+        function saveSettings() {
+          try {
+            localStorage.setItem('vtuber-settings', JSON.stringify(settingsState));
+          } catch (e) {}
+        }
+
+        function applySettings() {
+          document.getElementById('subtitle-enabled').checked = settingsState.subtitleEnabled;
+          document.getElementById('subtitle-offset-x').value = settingsState.subtitleOffsetX;
+          document.getElementById('subtitle-offset-x-value').textContent = settingsState.subtitleOffsetX;
+          document.getElementById('subtitle-offset-y').value = settingsState.subtitleOffsetY;
+          document.getElementById('subtitle-offset-y-value').textContent = settingsState.subtitleOffsetY;
+          document.getElementById('model-offset-x').value = settingsState.modelOffsetX;
+          document.getElementById('model-offset-x-value').textContent = settingsState.modelOffsetX;
+          document.getElementById('model-offset-y').value = settingsState.modelOffsetY;
+          document.getElementById('model-offset-y-value').textContent = settingsState.modelOffsetY;
+          document.getElementById('model-scale').value = settingsState.modelScale;
+          document.getElementById('model-scale-value').textContent = settingsState.modelScale + '%';
+          document.getElementById('auto-play-audio').checked = settingsState.autoPlayAudio;
+
+          // 新添加的配置项
+          const wsServerUrlEl = document.getElementById('ws-server-url');
+          if (wsServerUrlEl) {
+            wsServerUrlEl.value = settingsState.wsServerUrl || '';
+          }
+        }
+
+        function updateModelPosition() {
+          if (!live2dModel || !modelBoundsInfo) return;
+
+          const canvasWidth = pixiApp.renderer.screen.width;
+          const canvasHeight = pixiApp.renderer.screen.height;
+
+          const baseX = canvasWidth / 2 + settingsState.modelOffsetX;
+          const baseY = canvasHeight + settingsState.modelOffsetY;
+
+          live2dModel.x = baseX;
+          live2dModel.y = baseY;
+        }
+
+        function updateSubtitlePosition() {
+          const canvasWidth = window.innerWidth;
+          const canvasHeight = window.innerHeight;
+
+          const subtitleX = canvasWidth / 2 + settingsState.subtitleOffsetX;
+          const subtitleY = canvasHeight * 0.15 + settingsState.subtitleOffsetY;
+
+          subtitle.style.left = subtitleX + 'px';
+          subtitle.style.top = subtitleY + 'px';
+        }
+
+        function showSubtitle(text, autoHide = true) {
+          if (!settingsState.subtitleEnabled || !text) {
+            return;
+          }
+
+          subtitle.textContent = text;
+          subtitle.classList.add('visible');
+
+          if (subtitleHideTimer) {
+            clearTimeout(subtitleHideTimer);
+            subtitleHideTimer = null;
+          }
+
+          if (autoHide && !audioElement) {
+            subtitleHideTimer = setTimeout(() => {
+              subtitle.classList.remove('visible');
+            }, 3000);
+          }
+        }
+
+        function hideSubtitle() {
+          if (subtitleHideTimer) {
+            clearTimeout(subtitleHideTimer);
+            subtitleHideTimer = null;
+          }
+          subtitle.classList.remove('visible');
+        }
+
+        function showLoading(show, text = '正在加载 Live2D 模型...') {
+          loadingText.textContent = text;
+          loadingOverlay.classList.toggle('show', show);
+        }
+
+        function resolveLive2dConstructor() {
+          return window.PIXI?.live2d?.Live2DModel
+            || window.Live2DModel
+            || window.PIXI?.Live2DModel
+            || null;
+        }
+
+        async function initLive2D(modelConfig) {
+          if (live2dModel || pixiApp) {
+            if (live2dModel && pixiApp?.stage) {
+              try {
+                pixiApp.stage.removeChild(live2dModel);
+                if (typeof live2dModel.destroy === 'function') {
+                  live2dModel.destroy({ children: true, texture: true });
+                }
+              } catch (e) {}
+              live2dModel = null;
+            }
+
+            if (pixiApp) {
+              try {
+                const oldCanvas = pixiApp.canvas || pixiApp.view;
+                if (oldCanvas && oldCanvas.parentElement) {
+                  oldCanvas.parentElement.removeChild(oldCanvas);
+                }
+                if (typeof pixiApp.destroy === 'function') {
+                  pixiApp.destroy(true, { children: true, texture: true });
+                }
+              } catch (e) {}
+            }
+          }
+
+          const Live2DModel = resolveLive2dConstructor();
+          if (!Live2DModel || typeof Live2DModel.from !== 'function') {
+            modelInfoEl.textContent = 'Live2D 库加载失败';
+            return;
+          }
+
+          if (!window.PIXI || !window.PIXI.Application) {
+            modelInfoEl.textContent = 'PIXI 库加载失败';
+            return;
+          }
+
+          try {
+            if (stageContent && stageContent.parentElement) {
+              stageContent.remove();
+            }
+
+            const stageRect = stage.getBoundingClientRect();
+            const width = stageRect.width || 400;
+            const height = stageRect.height || 500;
+            const resolution = Math.max(1, Math.min(2, (Number(window.devicePixelRatio) || 1)));
+            const rendererOptions = {
+              transparent: true,
+              resizeTo: window,
+              antialias: false,
+              autoDensity: true,
+              resolution,
+              powerPreference: 'high-performance',
+              preserveDrawingBuffer: true,
+              premultipliedAlpha: false
+            };
+
+            let app;
+            const supportsAsyncInit = typeof PIXI.Application?.prototype?.init === 'function';
+            if (supportsAsyncInit) {
+              app = new PIXI.Application();
+              await app.init(rendererOptions);
+            } else {
+              app = new PIXI.Application(rendererOptions);
+            }
+
+            const canvas = app.canvas || app.view;
+            if (!canvas) {
+              throw new Error('Failed to create PIXI canvas');
+            }
+
+            pixiApp = app;
+            live2dCanvas = canvas;
+            canvas.style.position = 'absolute';
+            canvas.style.left = '0';
+            canvas.style.top = '0';
+            canvas.style.width = '100%';
+            canvas.style.height = '100%';
+            stage.appendChild(canvas);
+
+            console.log('Received model config:', modelConfig);
+            console.log('Model server URL:', modelServerUrl);
+
+            // 构建正确的模型URL
+            let modelUrl = '';
+            if (modelServerUrl && modelConfig?.url) {
+              // 模型服务器的根目录就是 live2d-models，所以去掉 URL 中的 /live2d-models 前缀
+              let urlPath = modelConfig.url;
+              if (urlPath.startsWith('/live2d-models/')) {
+                urlPath = urlPath.substring('/live2d-models'.length);
+              }
+              modelUrl = modelServerUrl + urlPath;
+            } else if (modelServerUrl) {
+              // 没有 url 字段时，根据名称构建
+              if (modelConfig?.name === 'yachiyo') {
+                modelUrl = modelServerUrl + '/yachiyo/yachiyo.model3.json';
+              } else {
+                modelUrl = modelServerUrl + '/mao_pro/runtime/mao_pro.model3.json';
+              }
+            } else {
+              // 没有 modelServerUrl 时使用完整路径
+              modelUrl = modelConfig?.url || '/live2d-models/mao_pro/runtime/mao_pro.model3.json';
+            }
+
+            console.log('Loading Live2D model from:', modelUrl);
+
+            const model = await Live2DModel.from(modelUrl, {
+              autoInteract: false
+            });
+
+            live2dModel = model;
+
+            // 模型加载完成，立即隐藏加载界面
+            showLoading(false);
+
+            setTimeout(() => {
+              if (live2dModel.internalModel?.coreModel) {
+                const im = live2dModel.internalModel;
+                if (im.lipSync !== undefined) {
+                  im.lipSync = false;
+                }
+              }
+
+              live2dModel.cursor = 'grab';
+              live2dModel.interactive = true;
+
+              const canvasWidth = pixiApp.renderer.screen.width;
+              const canvasHeight = pixiApp.renderer.screen.height;
+
+              let boundsX = 0, boundsY = 0, boundsWidth = live2dModel.width, boundsHeight = live2dModel.height;
+
+              if (typeof live2dModel.getLocalBounds === 'function') {
+                const bounds = live2dModel.getLocalBounds();
+                if (bounds && Number.isFinite(bounds.x) && Number.isFinite(bounds.y) &&
+                    Number.isFinite(bounds.width) && Number.isFinite(bounds.height) &&
+                    bounds.width > 0 && bounds.height > 0) {
+                  boundsX = bounds.x;
+                  boundsY = bounds.y;
+                  boundsWidth = bounds.width;
+                  boundsHeight = bounds.height;
+                }
+              }
+
+              modelBoundsInfo = { boundsX, boundsY, boundsWidth, boundsHeight };
+
+              const scale = Math.min(
+                canvasWidth / boundsWidth * 0.9,
+                canvasHeight / boundsHeight * 0.8
+              ) * (settingsState.modelScale / 100);
+
+              live2dModel.scale.set(scale);
+              live2dModel._lastScaleMultiplier = settingsState.modelScale / 100;
+
+              if (typeof live2dModel.pivot?.set === 'function') {
+                live2dModel.pivot.set(boundsWidth / 2, boundsHeight);
+              } else if (typeof live2dModel.anchor?.set === 'function') {
+                live2dModel.anchor.set(0.5, 1);
+              }
+
+              live2dModel.x = canvasWidth / 2 + settingsState.modelOffsetX;
+              live2dModel.y = canvasHeight + settingsState.modelOffsetY;
+
+              pixiApp.stage.addChild(live2dModel);
+
+              live2dPlaceholder.style.display = 'none';
+
+              if (window.mouseTracker && typeof window.mouseTracker.onGlobalMouseMove === 'function') {
+                window.mouseTracker.onGlobalMouseMove((payload) => {
+                  if (live2dModel && live2dModel.internalModel?.focusController) {
+                    try {
+                      live2dModel.internalModel.focusController.focus(payload.x, -payload.y);
+                    } catch (e) {}
+                  }
+                });
+              }
+
+              live2dModel.on('hit', (hitAreas) => {
+                if (hitAreas.includes('Head') || hitAreas.includes('Body')) {
+                  if (live2dModel.motion) {
+                    try {
+                      const motions = live2dModel.internalModel?.settings?.json?.FileReferences?.Motions;
+                      if (motions) {
+                        const motionGroups = Object.keys(motions);
+                        if (motionGroups.length > 0) {
+                          const group = motionGroups[Math.floor(Math.random() * motionGroups.length)];
+                          const groupMotions = motions[group];
+                          if (groupMotions && groupMotions.length > 0) {
+                            const motionIndex = Math.floor(Math.random() * groupMotions.length);
+                            live2dModel.motion(group, motionIndex);
+                          }
+                        }
+                      }
+                    } catch (e) {}
+                  }
+                }
+              });
+
+              bindMouthUpdateHook();
+              startIdleAnimation();
+            }, 100);
+
+          } catch (e) {
+            console.error('Failed to initialize Live2D:', e);
+            modelInfoEl.textContent = '初始化失败: ' + e.message;
+          }
+        }
+
+        async function connectWebSocket() {
+          let wsUrl = 'ws://127.0.0.1:6191/client-ws';
+          try {
+            if (electronAPI?.getSettings) {
+              const settings = await electronAPI.getSettings();
+              if (settings?.server?.url) {
+                wsUrl = settings.server.url;
+              }
+            }
+          } catch (e) {
+            console.log('Using default WebSocket URL');
+          }
+          console.log('Connecting to WebSocket:', wsUrl);
+          try {
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+              console.log('WebSocket connected');
+              ws.send(JSON.stringify({ type: 'ping' }));
+            };
+
+            ws.onmessage = function(event) {
+              try {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+              } catch (e) {
+                console.error('Failed to parse WebSocket message:', e);
+              }
+            };
+
+            ws.onclose = function() {
+              console.log('WebSocket disconnected, reconnecting...');
+              setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = function(error) {
+              console.error('WebSocket error:', error);
+            };
+          } catch (e) {
+            console.error('Failed to connect WebSocket:', e);
+            setTimeout(connectWebSocket, 3000);
+          }
+        }
+
+        function handleWebSocketMessage(data) {
+          switch (data.type) {
+            case 'full-text':
+              if (data.expressions && data.expressions.length > 0) {
+                setExpressions(data.expressions);
+              }
+              if (data.audio && settingsState.autoPlayAudio) {
+                playAudioWithLipSync(data.audio, data.text);
+              } else if (data.text) {
+                showSubtitle(data.text);
+              }
+              if (data.text) {
+                sendBotResponseToChat(data.text);
+              }
+              break;
+
+            case 'audio-only':
+              if (data.audio && settingsState.autoPlayAudio) {
+                playAudioWithLipSync(data.audio);
+              }
+              break;
+
+            case 'set-model-and-conf':
+              clientUid = data.client_uid;
+              modelInfo = data.model_info;
+              sendToChatWindow({ type: 'system', text: '收到模型配置: ' + (data.conf_name || '默认') });
+              if (modelInfo) {
+                showLoading(true);
+                initLive2D(modelInfo).catch(e => {
+                  console.error('Failed to init Live2D:', e);
+                  showLoading(false);
+                });
+              }
+              break;
+
+            case 'audio':
+              if (data.audio_data) {
+                playAudioWithLipSync(data.audio_data);
+              }
+              break;
+
+            case 'audio-url':
+              if (data.url) {
+                playAudioFromUrl(data.url);
+              }
+              break;
+
+            case 'heartbeat-ack':
+              break;
+
+            case 'config':
+              console.log('[AstrBot VTuber] Received config:', data);
+              if (data.models_path) {
+                console.log('[AstrBot VTuber] Server configured models_path:', data.models_path);
+                if (bridge && bridge.setModelsPath) {
+                  bridge.setModelsPath(data.models_path);
+                }
+              }
+              break;
+
+            case 'expression':
+              if (data.expressions && data.expressions.length > 0) {
+                setExpressions(data.expressions);
+              }
+              break;
+
+            case 'control':
+              stopIdleAnimation();
+              break;
+
+            default:
+              console.log('Unknown WebSocket message type:', data.type);
+          }
+        }
+
+        function sendToChatWindow(message) {
+          if (electronAPI?.send) {
+            electronAPI.send('chat:system-message', message);
+          }
+        }
+
+        function sendBotResponseToChat(text) {
+          if (electronAPI?.send) {
+            electronAPI.send('chat:response', { text: text });
+          }
+        }
+
+        function sendWebSocketMessage(message) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(message));
+          }
+        }
+
+        function playAudio(audioData) {
+          if (!audioElement) {
+            audioElement = new Audio();
+          }
+          audioElement.src = 'data:audio/wav;base64,' + audioData;
+          audioElement.play().catch(e => console.error('播放音频失败:', e));
+        }
+
+        function playAudioFromUrl(url) {
+          if (!audioElement) {
+            audioElement = new Audio();
+          }
+          audioElement.src = url;
+          audioElement.play().catch(e => console.error('播放音频失败:', e));
+        }
+
+        async function playAudioWithLipSync(base64Audio, subtitleText = null) {
+          if (!audioElement) {
+            audioElement = new Audio();
+          }
+          audioElement.src = 'data:audio/wav;base64,' + base64Audio;
+
+          if (subtitleText && settingsState.subtitleEnabled) {
+            subtitle.textContent = subtitleText;
+            subtitle.classList.add('visible');
+            if (subtitleHideTimer) {
+              clearTimeout(subtitleHideTimer);
+              subtitleHideTimer = null;
+            }
+          }
+
+          try {
+            if (!audioContext) {
+              audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            if (audioContext.state === 'suspended') {
+              await audioContext.resume();
+            }
+
+            if (!analyser) {
+              analyser = audioContext.createAnalyser();
+              analyser.fftSize = 256;
+              analyser.smoothingTimeConstant = 0.8;
+              dataArray = new Uint8Array(analyser.frequencyBinCount);
+            }
+
+            if (audioSource) {
+              try {
+                audioSource.disconnect();
+              } catch (e) {}
+            }
+
+            const source = audioContext.createMediaElementSource(audioElement);
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+            audioSource = source;
+
+            audioElement.onended = () => {
+              stopMouthAnimation();
+              setTargetMouthOpenY(0);
+              hideSubtitle();
+              audioSource = null;
+              audioElement = null;
+            };
+
+            audioElement.onerror = (e) => {
+              stopMouthAnimation();
+              setTargetMouthOpenY(0);
+              hideSubtitle();
+              audioSource = null;
+              audioElement = null;
+            };
+
+            startMouthAnimation();
+            await audioElement.play();
+          } catch (e) {
+            console.error('音频播放失败:', e);
+            playAudio(base64Audio);
+          }
+        }
+
+        let currentMouthOpenY = 0;
+        let targetMouthOpenY = 0;
+        let mouthUpdateHandler = null;
+
+        function bindMouthUpdateHook() {
+          if (!live2dModel?.internalModel) return;
+
+          const internalModel = live2dModel.internalModel;
+          internalModel.lipSync = false;
+
+          mouthUpdateHandler = () => {
+            const alpha = Math.abs(targetMouthOpenY) > Math.abs(currentMouthOpenY) ? 0.5 : 0.3;
+            currentMouthOpenY = currentMouthOpenY + (targetMouthOpenY - currentMouthOpenY) * alpha;
+
+            const coreModel = internalModel.coreModel;
+            if (coreModel && coreModel.setParameterValueById) {
+              try {
+                coreModel.setParameterValueById('ParamMouthOpenY', currentMouthOpenY);
+              } catch (e) {}
+            }
+          };
+
+          if (typeof internalModel.on === 'function') {
+            internalModel.on('beforeModelUpdate', mouthUpdateHandler);
+          }
+        }
+
+        function unbindMouthUpdateHook() {
+          if (mouthUpdateHandler && live2dModel?.internalModel) {
+            const internalModel = live2dModel.internalModel;
+            if (typeof internalModel.off === 'function') {
+              internalModel.off('beforeModelUpdate', mouthUpdateHandler);
+            }
+            mouthUpdateHandler = null;
+          }
+        }
+
+        function setTargetMouthOpenY(value) {
+          targetMouthOpenY = Math.max(0, Math.min(1, value));
+        }
+
+        function startMouthAnimation() {
+          if (isMouthAnimating) return;
+          isMouthAnimating = true;
+
+          function animate() {
+            if (!isMouthAnimating) return;
+
+            let sum = 0;
+            if (analyser && dataArray) {
+              analyser.getByteFrequencyData(dataArray);
+              for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+              }
+              const average = sum / dataArray.length;
+              const normalized = Math.min(1, average / 100);
+              setTargetMouthOpenY(normalized);
+            }
+
+            mouthAnimationId = requestAnimationFrame(animate);
+          }
+
+          animate();
+        }
+
+        function stopMouthAnimation() {
+          isMouthAnimating = false;
+          if (mouthAnimationId) {
+            cancelAnimationFrame(mouthAnimationId);
+            mouthAnimationId = null;
+          }
+        }
+
+        let expressionResetTimer = null;
+        let expressionTimers = [];
+        let idleAnimationTimer = null;
+        let isIdleAnimating = false;
+
+        function startIdleAnimation() {
+          if (isIdleAnimating || !live2dModel) return;
+          isIdleAnimating = true;
+          
+          const scheduleNextIdle = () => {
+            if (!isIdleAnimating) return;
+            const delay = 4000 + Math.random() * 6000;
+            idleAnimationTimer = setTimeout(() => {
+              if (!isIdleAnimating || !live2dModel) return;
+              const randomExpression = Math.floor(Math.random() * 3);
+              setExpressions([randomExpression]);
+              scheduleNextIdle();
+            }, delay);
+          };
+          
+          scheduleNextIdle();
+        }
+
+        function stopIdleAnimation() {
+          isIdleAnimating = false;
+          if (idleAnimationTimer) {
+            clearTimeout(idleAnimationTimer);
+            idleAnimationTimer = null;
+          }
+        }
+
+        function setExpressions(expressionIndices) {
+          if (!live2dModel) {
+            return;
+          }
+
+          stopIdleAnimation();
+
+          if (expressionResetTimer) {
+            clearTimeout(expressionResetTimer);
+            expressionResetTimer = null;
+          }
+
+          expressionTimers.forEach(t => clearTimeout(t));
+          expressionTimers = [];
+
+          const internalModel = live2dModel.internalModel;
+          if (!internalModel) {
+            return;
+          }
+
+          const expressionManager = internalModel.motionManager?.expressionManager;
+          const settings = internalModel.settings;
+
+          let expressions = null;
+          if (settings && settings.json && settings.json.FileReferences) {
+            expressions = settings.json.FileReferences.Expressions;
+          }
+
+          expressionIndices.forEach((idx, i) => {
+            const timer = setTimeout(() => {
+              try {
+                const expressionDef = expressions ? expressions[idx] : null;
+                const expressionName = expressionDef ? expressionDef.Name : null;
+                if (expressionName) {
+                  if (live2dModel.expression) {
+                    live2dModel.expression(expressionName);
+                  }
+                  if (expressionManager && expressionManager.setExpression) {
+                    expressionManager.setExpression(expressionName);
+                  }
+                } else {
+                  if (live2dModel.expression) {
+                    live2dModel.expression(idx);
+                  }
+                }
+
+                if (i === expressionIndices.length - 1) {
+                  expressionResetTimer = setTimeout(() => {
+                    resetExpression();
+                  }, 5000);
+                }
+              } catch (e) {
+                console.error('Failed to set expression:', e);
+              }
+            }, i * 200);
+            expressionTimers.push(timer);
+          });
+        }
+
+        function resetExpression() {
+          if (!live2dModel) return;
+          const internalModel = live2dModel.internalModel;
+          if (!internalModel) return;
+
+          const expressionManager = internalModel.motionManager?.expressionManager;
+
+          if (expressionManager && expressionManager.resetExpression) {
+            expressionManager.resetExpression();
+          } else if (live2dModel.expression) {
+            try {
+              live2dModel.expression(-1);
+            } catch (e) {}
+          }
+
+          expressionResetTimer = null;
+          startIdleAnimation();
+        }
+
+        stage.addEventListener('mousedown', (e) => {
+          if (resizeModeEnabled) return;
+          if (e.button !== 0) return;
+          isDragging = true;
+          hasMoved = false;
+          dragStartX = e.screenX;
+          dragStartY = e.screenY;
+          if (electronAPI) {
+            electronAPI.windowDrag('start', e.screenX, e.screenY);
+          }
+        });
+
+        stage.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          if (electronAPI?.showContextMenu) {
+            electronAPI.showContextMenu(e.screenX, e.screenY);
+          }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+          if (!isDragging) return;
+
+          const dx = Math.abs(e.screenX - dragStartX);
+          const dy = Math.abs(e.screenY - dragStartY);
+
+          if (dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD) {
+            hasMoved = true;
+          }
+          if (electronAPI) {
+            electronAPI.windowDrag('move', e.screenX, e.screenY);
+          }
+        });
+
+        document.addEventListener('mouseup', (e) => {
+          if (!isDragging) return;
+          if (e.button !== 0) return;
+          isDragging = false;
+          if (electronAPI) {
+            electronAPI.windowDrag('end', e.screenX, e.screenY);
+          }
+
+          if (!hasMoved && !resizeModeEnabled) {
+            toggleChatPanel();
+          }
+        });
+
+        resizeModeClose.addEventListener('click', () => {
+          updateResizeMode(false);
+        });
+
+        settingsClose.addEventListener('click', () => {
+          settingsPanel.classList.remove('visible');
+          if (electronAPI?.send) {
+            electronAPI.send('settings-panel-closed');
+          }
+        });
+
+        function toggleChatPanel() {
+          if (electronAPI) {
+            electronAPI.send('toggle-chat-window');
+          } else if (bridge?.sendChatPanelToggle) {
+            bridge.sendChatPanelToggle();
+          }
+        }
+
+        function updateResizeMode(enabled, fromSync = false) {
+          resizeModeEnabled = enabled;
+          if (enabled) {
+            document.body.classList.add('resize-mode-active');
+          } else {
+            document.body.classList.remove('resize-mode-active');
+          }
+          if (!fromSync && bridge?.sendWindowInteractivity) {
+            bridge.sendWindowInteractivity({ resizeModeEnabled });
+          }
+        }
+
+        document.getElementById('subtitle-enabled').addEventListener('change', (e) => {
+          settingsState.subtitleEnabled = e.target.checked;
+          saveSettings();
+          if (!settingsState.subtitleEnabled) {
+            hideSubtitle();
+          }
+        });
+
+        document.getElementById('subtitle-offset-x').addEventListener('input', (e) => {
+          settingsState.subtitleOffsetX = parseInt(e.target.value);
+          document.getElementById('subtitle-offset-x-value').textContent = settingsState.subtitleOffsetX;
+          saveSettings();
+          updateSubtitlePosition();
+        });
+
+        document.getElementById('subtitle-offset-y').addEventListener('input', (e) => {
+          settingsState.subtitleOffsetY = parseInt(e.target.value);
+          document.getElementById('subtitle-offset-y-value').textContent = settingsState.subtitleOffsetY;
+          saveSettings();
+          updateSubtitlePosition();
+        });
+
+        document.getElementById('model-offset-x').addEventListener('input', (e) => {
+          settingsState.modelOffsetX = parseInt(e.target.value);
+          document.getElementById('model-offset-x-value').textContent = settingsState.modelOffsetX;
+          saveSettings();
+          updateModelPosition();
+        });
+
+        document.getElementById('model-offset-y').addEventListener('input', (e) => {
+          settingsState.modelOffsetY = parseInt(e.target.value);
+          document.getElementById('model-offset-y-value').textContent = settingsState.modelOffsetY;
+          saveSettings();
+          updateModelPosition();
+        });
+
+        document.getElementById('model-scale').addEventListener('input', (e) => {
+          const newScale = parseInt(e.target.value);
+          const oldScale = settingsState.modelScale;
+          settingsState.modelScale = newScale;
+          document.getElementById('model-scale-value').textContent = newScale + '%';
+          saveSettings();
+
+          if (live2dModel) {
+            const scaleMultiplier = newScale / oldScale;
+            live2dModel.scale.set(live2dModel.scale.x * scaleMultiplier, live2dModel.scale.y * scaleMultiplier);
+          }
+        });
+
+        document.getElementById('auto-play-audio').addEventListener('change', (e) => {
+          settingsState.autoPlayAudio = e.target.checked;
+          saveSettings();
+        });
+
+        // WebSocket URL 配置
+        const wsServerUrlEl = document.getElementById('ws-server-url');
+        if (wsServerUrlEl) {
+          wsServerUrlEl.addEventListener('change', async (e) => {
+            settingsState.wsServerUrl = e.target.value;
+            saveSettings();
+            // 同时保存到 electron-store
+            if (electronAPI?.setSettings) {
+              await electronAPI.setSettings('server.url', e.target.value);
+            }
+            // 提示用户需要重启连接
+            console.log('WebSocket URL updated, please reconnect');
+          });
+        }
+
+        if (electronAPI) {
+          electronAPI.onOpenSettings(() => {
+            settingsPanel.classList.toggle('visible');
+            if (settingsPanel.classList.contains('visible')) {
+              electronAPI.send('settings-panel-opened');
+            } else {
+              electronAPI.send('settings-panel-closed');
+            }
+          });
+        }
+
+        console.log('[AstrBot VTuber] bridge:', bridge);
+        console.log('[AstrBot VTuber] electronAPI:', electronAPI);
+        
+        if (bridge) {
+          console.log('[AstrBot VTuber] Setting up window state sync...');
+          bridge.onWindowStateSync((payload) => {
+            if (payload.resizeModeEnabled !== undefined) {
+              updateResizeMode(payload.resizeModeEnabled, true);
+            }
+          });
+
+          console.log('[AstrBot VTuber] Getting runtime config...');
+          bridge.getRuntimeConfig().then((config) => {
+            console.log('[AstrBot VTuber] Runtime config received:', config);
+            if (config?.modelServerUrl) {
+              modelServerUrl = config.modelServerUrl;
+              console.log('[AstrBot VTuber] modelServerUrl set to:', modelServerUrl);
+            } else {
+              console.warn('[AstrBot VTuber] No modelServerUrl in config');
+            }
+            loadSettings();
+            applySettings();
+            updateSubtitlePosition();
+            
+            // Load default model if modelServerUrl is available
+            if (modelServerUrl) {
+              console.log('[AstrBot VTuber] Loading default model from:', modelServerUrl);
+              showLoading(true, 'Loading Live2D model...');
+              const defaultModelConfig = {
+                name: 'yachiyo',
+                url: '/yachiyo/yachiyo.model3.json'
+              };
+              initLive2D(defaultModelConfig).catch(e => {
+                console.error('Failed to load default model:', e);
+                showLoading(false);
+              });
+            } else {
+              console.error('[AstrBot VTuber] Cannot load model: no modelServerUrl');
+            }
+          }).catch(err => {
+            console.error('[AstrBot VTuber] Failed to get runtime config:', err);
+          });
+        } else {
+          console.error('[AstrBot VTuber] No bridge available!');
+        }
+
+        if (electronAPI) {
+          electronAPI.on('toggle-chat-window', () => {
+            toggleChatPanel();
+          });
+
+          electronAPI.on('chat:message-from-panel', (message) => {
+            if (message && ws) {
+              sendWebSocketMessage({ type: 'text-input', text: message });
+            }
+          });
+
+          electronAPI.on('models-path-updated', (data) => {
+            console.log('[AstrBot VTuber] Models path updated:', data);
+            if (data.modelServerUrl) {
+              modelServerUrl = data.modelServerUrl;
+            }
+          });
+        }
+
+        window.addEventListener('resize', () => {
+          if (live2dModel && pixiApp) {
+            updateModelPosition();
+          }
+          updateSubtitlePosition();
+        });
+
+        setTimeout(() => {
+          connectWebSocket();
+        }, 500);
+
+        console.log('[AstrBot VTuber] Initialized');
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,31 @@
+{
+    "vtuber_enable": {
+        "description": "Enable VTuber Integration",
+        "type": "bool",
+        "default": true
+    },
+    "ws_host": {
+        "description": "WebSocket Host",
+        "hint": "The host address for WebSocket server",
+        "type": "string",
+        "default": "0.0.0.0"
+    },
+    "ws_port": {
+        "description": "WebSocket Port",
+        "hint": "The port for WebSocket server (default: 6191)",
+        "type": "int",
+        "default": 6191
+    },
+    "live2d_model": {
+        "description": "Live2D Model Name",
+        "hint": "Available models: mao_pro, yachiyo",
+        "type": "string",
+        "default": "mao_pro"
+    },
+    "model_dict_path": {
+        "description": "Live2D Models Path",
+        "hint": "Path to live2d-models folder (e.g., D:/live2d-models). Desktop client will use this path to load models.",
+        "type": "string",
+        "default": ""
+    }
+}

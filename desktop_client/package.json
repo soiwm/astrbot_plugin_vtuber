@@ -1,0 +1,19 @@
+{
+  "name": "astrbot-vtuber-desktop",
+  "version": "0.1.0",
+  "description": "AstrBot VTuber Desktop Client",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.10"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.0"
+  }
+}

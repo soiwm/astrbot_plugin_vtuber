@@ -1,0 +1,68 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "yachiyo.moc3",
+		"Textures": [
+			"yachiyo.8192/texture_00.png",
+			"yachiyo.8192/texture_01.png"
+		],
+		"Physics": "yachiyo.physics3.json",
+		"DisplayInfo": "yachiyo.cdi3.json",
+		"Expressions": [
+			{
+				"Name": "tear_drop",
+				"File": "tear_drop.exp3.json"
+			},
+			{
+				"Name": "narrow_eyes",
+				"File": "narrow_eyes.exp3.json"
+			},
+			{
+				"Name": "tears",
+				"File": "tears.exp3.json"
+			},
+			{
+				"Name": "smile",
+				"File": "smile.exp3.json"
+			}
+		],
+		"Motions": {
+			"Idle": [
+				{
+					"File": "motions/yachiyo_idle.motion3.json",
+					"FadeInTime": 0.5,
+					"FadeOutTime": 0.5
+				}
+			],
+			"Greet": [
+				{
+					"File": "motions/yachiyo_greet.motion3.json",
+					"FadeInTime": 0.4,
+					"FadeOutTime": 0.4
+				}
+			],
+			"ReactError": [
+				{
+					"File": "motions/yachiyo_react_error.motion3.json",
+					"FadeInTime": 0.3,
+					"FadeOutTime": 0.3
+				}
+			]
+		}
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeLOpen",
+				"ParamEyeROpen"
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		}
+	]
+}

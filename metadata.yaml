@@ -1,0 +1,27 @@
+name: astrbot_plugin_vtuber
+version: 1.0.0
+description: VTuber Live2D 虚拟形象插件，支持 Live2D 模型显示、表情系统、TTS 语音合成、口型同步等功能
+author: AstrBot Team
+repo: https://github.com/soiwm/astrbot_plugin_vtuber
+tags:
+  - vtuber
+  - live2d
+  - tts
+dependencies:
+  - astrbot>=3.0.0
+help: |
+  VTuber 插件使用说明:
+  
+  1. 启动插件后，运行 desktop_client 目录下的 Electron 客户端
+  2. 客户端会自动连接到 AstrBot 的 WebSocket 服务器
+  3. 在客户端中可以与 AI 进行对话，支持语音回复和 Live2D 表情
+  
+  配置项:
+  - ws_host: WebSocket 监听地址 (默认: 0.0.0.0)
+  - ws_port: WebSocket 端口 (默认: 6191)
+  - live2d_model: Live2D 模型名称 (默认: mao_pro)
+  
+  支持的模型:
+  - mao_pro: 猫耳少女模型
+  - yachiyo: 八千代模型
+  - shizuku: 雫模型

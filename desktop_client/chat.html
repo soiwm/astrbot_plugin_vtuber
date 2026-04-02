@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AstrBot VTuber Chat</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      overflow: hidden;
+      font-family: "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #chat-panel {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 14px;
+      background: rgba(10, 14, 24, 0.92);
+      backdrop-filter: blur(10px);
+      color: #f4f8ff;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+      overflow: hidden;
+    }
+
+    #chat-panel-header {
+      flex: 0 0 auto;
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 12px;
+      letter-spacing: 0.03em;
+      color: #b7c6e9;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      -webkit-app-region: drag;
+    }
+
+    #chat-panel-header-title {
+      font-size: 12px;
+      letter-spacing: 0.03em;
+    }
+
+    #chat-panel-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    .chat-panel-action {
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 8px;
+      padding: 2px 7px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #e8f0ff;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .chat-panel-action:hover {
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    #chat-panel-messages {
+      flex: 1 1 auto;
+      overflow: auto;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    #chat-panel-messages::-webkit-scrollbar {
+      width: 5px;
+    }
+
+    #chat-panel-messages::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    #chat-panel-messages::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+    }
+
+    .chat-message {
+      padding: 6px 10px;
+      border-radius: 10px;
+      max-width: 92%;
+      word-wrap: break-word;
+      font-size: 13px;
+      line-height: 1.42;
+    }
+
+    .chat-message.user {
+      align-self: flex-end;
+      background: rgba(59, 130, 246, 0.55);
+      color: #ffffff;
+    }
+
+    .chat-message.assistant {
+      align-self: flex-start;
+      background: rgba(255, 255, 255, 0.08);
+      color: #e8f0ff;
+    }
+
+    .chat-message.system {
+      align-self: center;
+      background: rgba(255, 255, 255, 0.05);
+      color: #8b9dc3;
+      font-size: 11px;
+      text-align: center;
+    }
+
+    #chat-panel-composer {
+      flex: 0 0 auto;
+      padding: 8px 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    #chat-input {
+      flex: 1 1 auto;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 10px;
+      padding: 6px 10px;
+      color: #f4f8ff;
+      font-size: 13px;
+      outline: none;
+    }
+
+    #chat-input:focus {
+      border-color: rgba(59, 130, 246, 0.5);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    #chat-input::placeholder {
+      color: rgba(255, 255, 255, 0.38);
+    }
+
+    #chat-send {
+      flex: 0 0 auto;
+      background: rgba(59, 130, 246, 0.65);
+      border: none;
+      border-radius: 10px;
+      padding: 6px 14px;
+      color: #ffffff;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 120ms ease;
+    }
+
+    #chat-send:hover {
+      background: rgba(59, 130, 246, 0.82);
+    }
+  </style>
+</head>
+<body>
+  <div id="chat-panel">
+    <div id="chat-panel-header">
+      <span id="chat-panel-header-title">聊天</span>
+      <div id="chat-panel-header-actions">
+        <button class="chat-panel-action" id="chat-hide" type="button">隐藏</button>
+      </div>
+    </div>
+    <div id="chat-panel-messages">
+      <div class="chat-message system">
+        欢迎使用 AstrBot VTuber！
+      </div>
+    </div>
+    <div id="chat-panel-composer">
+      <input id="chat-input" type="text" maxlength="4000" placeholder="输入消息..." />
+      <button id="chat-send" type="button">发送</button>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const electronAPI = window.electronAPI;
+      const chatMessages = document.getElementById('chat-panel-messages');
+      const chatInput = document.getElementById('chat-input');
+      const chatSend = document.getElementById('chat-send');
+      const chatHide = document.getElementById('chat-hide');
+
+      function addMessage(text, type) {
+        const msg = document.createElement('div');
+        msg.className = `chat-message ${type}`;
+        msg.textContent = text;
+        chatMessages.appendChild(msg);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+
+      function sendMessage() {
+        const text = chatInput.value.trim();
+        if (!text) return;
+        
+        addMessage(text, 'user');
+        chatInput.value = '';
+        
+        if (electronAPI?.sendChatMessage) {
+          electronAPI.sendChatMessage(text);
+        }
+      }
+
+      chatSend.addEventListener('click', sendMessage);
+      chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      chatHide.addEventListener('click', () => {
+        if (electronAPI?.hideChatWindow) {
+          electronAPI.hideChatWindow();
+        }
+      });
+
+      if (electronAPI?.onChatResponse) {
+        electronAPI.onChatResponse((response) => {
+          if (response?.text) {
+            addMessage(response.text, 'assistant');
+          }
+        });
+      }
+
+      if (electronAPI?.onChatSystemMessage) {
+        electronAPI.onChatSystemMessage((msg) => {
+          if (msg) {
+            addMessage(msg, 'system');
+          }
+        });
+      }
+
+      console.log('[AstrBot VTuber Chat] Initialized');
+    })();
+  </script>
+</body>
+</html>
