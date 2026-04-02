@@ -48,14 +48,20 @@ class SimpleTTSEngine:
 class TTSTaskManager:
     """管理 TTS 任务并确保有序发送到前端，同时允许并行 TTS 生成"""
 
+    MAX_QUEUE_SIZE = 100
+    SEQUENCE_TIMEOUT = 30.0
+
     def __init__(self, tts_engine=None) -> None:
         self.task_list: list[asyncio.Task] = []
-        self._payload_queue: asyncio.Queue[tuple[dict, int]] = asyncio.Queue()
+        self._payload_queue: asyncio.Queue[tuple[dict, int]] = asyncio.Queue(
+            maxsize=self.MAX_QUEUE_SIZE
+        )
         self._sender_task: asyncio.Task | None = None
         self._sequence_counter = 0
         self._next_sequence_to_send = 0
         self.tts_engine = tts_engine or SimpleTTSEngine()
         self._running = True
+        self._last_send_time: float = 0
 
     async def speak(
         self,
@@ -118,8 +124,12 @@ class TTSTaskManager:
         """
         按正确顺序处理和发送 payload
         持续运行直到所有 payload 处理完毕
+        包含超时机制防止缺序号永久阻塞
         """
+        import time
+
         buffered_payloads: dict[int, dict] = {}
+        self._last_send_time = time.time()
 
         while self._running:
             try:
@@ -132,14 +142,33 @@ class TTSTaskManager:
                     next_payload = buffered_payloads.pop(self._next_sequence_to_send)
                     try:
                         await websocket_send(json.dumps(next_payload))
+                        self._last_send_time = time.time()
                     except Exception as e:
                         logger.error(f"Error sending payload: {e}")
                     self._next_sequence_to_send += 1
 
                 self._payload_queue.task_done()
 
+                if buffered_payloads:
+                    wait_time = time.time() - self._last_send_time
+                    if wait_time > self.SEQUENCE_TIMEOUT:
+                        missing_seqs = [
+                            s
+                            for s in range(
+                                self._next_sequence_to_send,
+                                max(buffered_payloads.keys()),
+                            )
+                            if s not in buffered_payloads
+                        ]
+                        if missing_seqs:
+                            logger.warning(
+                                f"Sequence timeout, skipping missing sequences: {missing_seqs}"
+                            )
+                            for seq in missing_seqs:
+                                self._next_sequence_to_send = seq + 1
+
             except asyncio.TimeoutError:
-                if self._payload_queue.empty():
+                if self._payload_queue.empty() and not buffered_payloads:
                     break
                 continue
             except asyncio.CancelledError:

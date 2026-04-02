@@ -211,11 +211,14 @@ FEAR_WORDS = [
 class EmotionAnalyzer:
     """Emotion analyzer for VTuber expressions"""
 
+    RECOVERY_INTERVAL = 10
+
     def __init__(self, context=None, llm_timeout: float = 10.0):
         self.context = context
         self.llm_timeout = llm_timeout
         self._llm_failures = 0
         self._llm_available = True
+        self._keyword_analysis_count = 0
 
     async def analyze(self, user_message: str, ai_response: str) -> dict[str, int]:
         """
@@ -239,6 +242,14 @@ class EmotionAnalyzer:
             if self._llm_failures >= 3:
                 self._llm_available = False
                 logger.info("LLM analysis disabled after 3 failures")
+
+            if not self._llm_available:
+                self._keyword_analysis_count += 1
+                if self._keyword_analysis_count >= self.RECOVERY_INTERVAL:
+                    self._keyword_analysis_count = 0
+                    self._llm_available = True
+                    self._llm_failures = 0
+                    logger.info("Attempting to re-enable LLM analysis")
 
         except Exception as e:
             logger.error(f"LLM emotion analysis failed: {e}")
@@ -433,10 +444,13 @@ Rules:
         return scores
 
     def _count_words(self, text: str, words: list[str]) -> int:
-        """Count matching words in text"""
+        """Count matching words in text using word boundary matching"""
+        import re
+
         count = 0
         for word in words:
-            if word in text:
+            pattern = r"(?<![a-zA-Z0-9])" + re.escape(word) + r"(?![a-zA-Z0-9])"
+            if re.search(pattern, text):
                 count += 1
         return count
 

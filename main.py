@@ -91,6 +91,7 @@ class VTuberMessageEvent(AstrMessageEvent):
         self._user_message_stored = False
         self._emotion_map = emotion_map or {}
         self._streaming_completed = False
+        self._audio_sent = False
         self._emotion_analyzer = emotion_analyzer
 
     async def _store_user_message(self):
@@ -163,9 +164,10 @@ class VTuberMessageEvent(AstrMessageEvent):
             return
 
         audio_base64 = await self._extract_audio_from_message(message)
+        text = _message_chain_to_text(message)
 
         if self._streaming_completed:
-            if audio_base64:
+            if audio_base64 and not self._audio_sent:
                 logger.info(
                     f"Sending audio only (streaming completed), length: {len(audio_base64)}"
                 )
@@ -175,21 +177,26 @@ class VTuberMessageEvent(AstrMessageEvent):
                         "audio": audio_base64,
                     }
                     await self.ws_client.send_json(payload)
+                    self._audio_sent = True
                 except Exception as e:
                     logger.error(f"Error sending audio to WebSocket client: {e}")
+            elif text:
+                logger.debug(
+                    "send() called again after streaming completed, ignoring duplicate text"
+                )
             return
 
         self._streaming_completed = True
+        self._audio_sent = False
 
         await self._store_user_message()
-
-        text = _message_chain_to_text(message)
 
         if audio_base64 and not text:
             logger.info(f"Sending audio-only message, length: {len(audio_base64)}")
             try:
                 payload = {"type": "audio-only", "audio": audio_base64}
                 await self.ws_client.send_json(payload)
+                self._audio_sent = True
             except Exception as e:
                 logger.error(f"Error sending audio-only to WebSocket client: {e}")
             return
@@ -211,6 +218,7 @@ class VTuberMessageEvent(AstrMessageEvent):
                     logger.info(
                         f"Sending audio with message, length: {len(audio_base64)}"
                     )
+                    self._audio_sent = True
                 await self.ws_client.send_json(payload)
             except Exception as e:
                 logger.error(f"Error sending to WebSocket client: {e}")
@@ -294,67 +302,102 @@ class VTuberMessageEvent(AstrMessageEvent):
             logger.error(f"Error reading audio file: {e}")
             return None
 
-    async def _is_safe_url_async(self, url: str) -> bool:
-        """Check if URL is safe to download from (SSRF protection with DNS resolution)"""
+    def _is_ip_safe(self, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+        """Check if an IP address is safe to connect to"""
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            return False
+        if ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            return False
+        return True
+
+    async def _resolve_and_validate_url(
+        self, url: str
+    ) -> tuple[str, dict[str, str]] | None:
+        """
+        Resolve URL and validate it's safe.
+        Returns (resolved_url, headers) or None if unsafe.
+        This prevents TOCTOU by resolving DNS once and using the result directly.
+        """
         try:
             parsed = urlparse(url)
             if parsed.scheme not in ("http", "https"):
-                return False
+                return None
 
             hostname = parsed.hostname
             if not hostname:
-                return False
+                return None
 
             blocked_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
             if hostname.lower() in blocked_hosts:
-                logger.warning(f"Blocked blocked hostname: {hostname}")
-                return False
+                logger.warning(f"Blocked hostname: {hostname}")
+                return None
 
             try:
                 ip = ipaddress.ip_address(hostname)
-                if ip.is_private or ip.is_loopback or ip.is_link_local:
-                    logger.warning(f"Blocked private/internal IP access: {hostname}")
-                    return False
-                return True
+                if not self._is_ip_safe(ip):
+                    logger.warning(f"Blocked unsafe IP: {hostname}")
+                    return None
+                return url, {}
             except ValueError:
                 pass
 
+            port = parsed.port
+            if port is None:
+                port = 443 if parsed.scheme == "https" else 80
+
             try:
                 loop = asyncio.get_running_loop()
-                addr_infos = await loop.getaddrinfo(hostname, parsed.port or 80)
-
-                for addr_info in addr_infos:
-                    sock_addr = addr_info[4]
-                    ip_str = sock_addr[0]
-                    try:
-                        ip = ipaddress.ip_address(ip_str)
-                        if ip.is_private or ip.is_loopback or ip.is_link_local:
-                            logger.warning(
-                                f"Blocked DNS-resolved private IP: {hostname} -> {ip_str}"
-                            )
-                            return False
-                    except ValueError:
-                        continue
-
-                return True
+                addr_infos = await loop.getaddrinfo(hostname, port)
             except Exception as dns_error:
                 logger.warning(f"DNS resolution failed for {hostname}: {dns_error}")
-                return False
+                return None
+
+            for addr_info in addr_infos:
+                sock_addr = addr_info[4]
+                ip_str = sock_addr[0]
+                try:
+                    ip = ipaddress.ip_address(ip_str)
+                    if not self._is_ip_safe(ip):
+                        logger.warning(
+                            f"Blocked DNS-resolved unsafe IP: {hostname} -> {ip_str}"
+                        )
+                        return None
+                except ValueError:
+                    continue
+
+            first_addr = addr_infos[0][4]
+            resolved_ip = first_addr[0]
+            resolved_port = first_addr[1]
+
+            resolved_url = (
+                f"{parsed.scheme}://{resolved_ip}:{resolved_port}{parsed.path}"
+            )
+            if parsed.query:
+                resolved_url += f"?{parsed.query}"
+
+            headers = {"Host": hostname}
+
+            return resolved_url, headers
 
         except Exception as e:
             logger.error(f"URL validation error: {e}")
-            return False
+            return None
 
     async def _download_audio_as_base64(self, url: str) -> str | None:
         """Download audio from URL and return as Base64"""
-        if not await self._is_safe_url_async(url):
+        result = await self._resolve_and_validate_url(url)
+        if result is None:
             logger.warning(f"Blocked unsafe URL: {url}")
             return None
+
+        resolved_url, extra_headers = result
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    url, timeout=aiohttp.ClientTimeout(total=30)
+                    resolved_url,
+                    headers=extra_headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
                 ) as resp:
                     if resp.status == 200:
                         content_length = resp.content_length or 0
@@ -425,6 +468,7 @@ class VTuberWebSocketServer:
         on_message=None,
         default_model: str = "mao_pro",
         models_path: str = "",
+        auth_token: str = "",
     ) -> None:
         self.host = host
         self.port = port
@@ -433,6 +477,7 @@ class VTuberWebSocketServer:
         self.on_message = on_message
         self.default_model = default_model
         self.models_path = models_path
+        self.auth_token = auth_token
 
         self._ws_clients: dict[str, web.WebSocketResponse] = {}
         self._session_models: dict[str, dict] = {}
@@ -441,6 +486,19 @@ class VTuberWebSocketServer:
         self._http_task: asyncio.Task | None = None
         self._plugin_dir = Path(__file__).parent
         self._model_dict: list = []
+
+    def _validate_token(self, request: web.Request) -> bool:
+        """Validate authentication token from request"""
+        if not self.auth_token:
+            return True
+
+        token = request.query.get("token", "")
+        if not token:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+
+        return token == self.auth_token
 
     def get_active_clients_count(self) -> int:
         return len(self._ws_clients)
@@ -584,6 +642,12 @@ class VTuberWebSocketServer:
         )
 
     async def _handle_test_send(self, request: web.Request) -> web.Response:
+        if not self._validate_token(request):
+            return web.json_response(
+                {"error": "Unauthorized", "message": "Invalid or missing token"},
+                status=401,
+            )
+
         text = request.query.get("text", "Hello! [joy] This is a test message.")
         payload = {
             "type": "full-text",
@@ -600,6 +664,15 @@ class VTuberWebSocketServer:
         )
 
     async def _handle_websocket(self, request: web.Request) -> web.WebSocketResponse:
+        if not self._validate_token(request):
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            await ws.send_json(
+                {"type": "error", "message": "Unauthorized: Invalid or missing token"}
+            )
+            await ws.close()
+            return ws
+
         ws = web.WebSocketResponse()
         await ws.prepare(request)
 
@@ -812,6 +885,7 @@ class Main(Star):
             on_message=self._on_client_message,
             default_model=config.get("live2d_model", "mao_pro"),
             models_path=models_path,
+            auth_token=config.get("auth_token", ""),
         )
 
         try:
@@ -969,6 +1043,14 @@ class Main(Star):
         global ws_server_instance
 
         logger.info("正在清理 VTuber 插件...")
+
+        if self._ws_server_task and not self._ws_server_task.done():
+            self._ws_server_task.cancel()
+            try:
+                await self._ws_server_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("WebSocket 服务器任务已取消")
 
         if self._adapter:
             try:

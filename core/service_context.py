@@ -54,7 +54,7 @@ class ServiceContext:
 
     async def close(self):
         """关闭服务并清理资源"""
-        self.tts_manager.clear()
+        await self.tts_manager.clear()
         logger.info("ServiceContext closed")
 
     def set_tts_engine(self, tts_engine):

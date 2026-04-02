@@ -78,10 +78,8 @@ def segment_text_by_regex(text: str) -> tuple[list[str], str]:
     complete_sentences = []
     remaining_text = text.strip()
 
-    # Sort by length (longest first) to match multi-char punctuations first
     sorted_punctuations = sorted(END_PUNCTUATIONS, key=len, reverse=True)
     escaped_punctuations = [re.escape(p) for p in sorted_punctuations]
-    # Use alternation without character class for multi-char support
     pattern = r"(.*?(?:" + "|".join(escaped_punctuations) + r"))"
 
     while remaining_text:
@@ -92,8 +90,8 @@ def segment_text_by_regex(text: str) -> tuple[list[str], str]:
         end_pos = match.end(1)
         potential_sentence = remaining_text[:end_pos].strip()
 
-        # Skip if sentence ends with abbreviation
         if any(potential_sentence.endswith(abbrev) for abbrev in ABBREVIATIONS):
+            complete_sentences.append(potential_sentence)
             remaining_text = remaining_text[end_pos:].lstrip()
             continue
 
@@ -164,7 +162,7 @@ class SentenceDivider:
 
         # Check for self-closing tags
         for tag in self.valid_tags:
-            pattern = f"<{tag}/>"
+            pattern = f"<{re.escape(tag)}/>"
             match = re.search(pattern, text)
             if match and match.start() < first_pos:
                 first_pos = match.start()
@@ -174,7 +172,7 @@ class SentenceDivider:
 
         # Check for opening tags
         for tag in self.valid_tags:
-            pattern = f"<{tag}>"
+            pattern = f"<{re.escape(tag)}>"
             match = re.search(pattern, text)
             if match and match.start() < first_pos:
                 first_pos = match.start()
@@ -184,7 +182,7 @@ class SentenceDivider:
 
         # Check for closing tags
         for tag in self.valid_tags:
-            pattern = f"</{tag}>"
+            pattern = f"</{re.escape(tag)}>"
             match = re.search(pattern, text)
             if match and match.start() < first_pos:
                 first_pos = match.start()
