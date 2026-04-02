@@ -5,6 +5,7 @@ AstrBot VTuber 插件主类
 
 import asyncio
 import base64
+import ipaddress
 import json
 import os
 import time
@@ -12,6 +13,7 @@ import traceback
 import uuid
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import aiohttp
 from aiohttp import web
@@ -32,8 +34,6 @@ from astrbot.core.platform import (
 )
 from astrbot.core.platform.astr_message_event import MessageSesion
 from astrbot.core.platform.register import (
-    platform_cls_map,
-    platform_registry,
     register_platform_adapter,
 )
 
@@ -189,6 +189,16 @@ class VTuberMessageEvent(AstrMessageEvent):
         await self._store_user_message()
 
         text = _message_chain_to_text(message)
+
+        if audio_base64 and not text:
+            logger.info(f"Sending audio-only message, length: {len(audio_base64)}")
+            try:
+                payload = {"type": "audio-only", "audio": audio_base64}
+                await self.ws_client.send_json(payload)
+            except Exception as e:
+                logger.error(f"Error sending audio-only to WebSocket client: {e}")
+            return
+
         if text:
             self._response_text = text
             await self._store_bot_message(text)
@@ -241,13 +251,47 @@ class VTuberMessageEvent(AstrMessageEvent):
 
         return None
 
+    def _is_safe_path(self, file_path: str) -> bool:
+        """Check if file path is safe to read (path traversal protection)"""
+        try:
+            path = Path(file_path).resolve()
+
+            if ".." in str(file_path):
+                return False
+
+            allowed_dirs = [
+                Path.cwd(),
+                Path.home() / ".astrbot",
+            ]
+
+            for allowed_dir in allowed_dirs:
+                try:
+                    path.relative_to(allowed_dir)
+                    return True
+                except ValueError:
+                    continue
+
+            return False
+        except Exception as e:
+            logger.error(f"Path validation error: {e}")
+            return False
+
     def _read_audio_file_as_base64(self, file_path: str) -> str | None:
         """Read local audio file and return as Base64"""
+        if not self._is_safe_path(file_path):
+            logger.warning(f"Blocked unsafe file path: {file_path}")
+            return None
+
         if not os.path.exists(file_path):
             logger.warning(f"Audio file not found: {file_path}")
             return None
 
         try:
+            file_size = os.path.getsize(file_path)
+            if file_size > 10 * 1024 * 1024:
+                logger.warning(f"Audio file too large: {file_size} bytes")
+                return None
+
             with open(file_path, "rb") as f:
                 audio_data = f.read()
             return base64.b64encode(audio_data).decode("utf-8")
@@ -255,14 +299,52 @@ class VTuberMessageEvent(AstrMessageEvent):
             logger.error(f"Error reading audio file: {e}")
             return None
 
+    def _is_safe_url(self, url: str) -> bool:
+        """Check if URL is safe to download from (SSRF protection)"""
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https"):
+                return False
+
+            hostname = parsed.hostname
+            if not hostname:
+                return False
+
+            try:
+                ip = ipaddress.ip_address(hostname)
+                if ip.is_private or ip.is_loopback or ip.is_link_local:
+                    logger.warning(f"Blocked private/internal IP access: {hostname}")
+                    return False
+            except ValueError:
+                pass
+
+            blocked_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
+            if hostname.lower() in blocked_hosts:
+                return False
+
+            return True
+        except Exception as e:
+            logger.error(f"URL validation error: {e}")
+            return False
+
     async def _download_audio_as_base64(self, url: str) -> str | None:
         """Download audio from URL and return as Base64"""
+        if not self._is_safe_url(url):
+            logger.warning(f"Blocked unsafe URL: {url}")
+            return None
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     url, timeout=aiohttp.ClientTimeout(total=30)
                 ) as resp:
                     if resp.status == 200:
+                        content_length = resp.content_length or 0
+                        if content_length > 10 * 1024 * 1024:
+                            logger.warning(
+                                f"Audio file too large: {content_length} bytes"
+                            )
+                            return None
                         audio_data = await resp.read()
                         return base64.b64encode(audio_data).decode("utf-8")
                     else:
@@ -730,9 +812,15 @@ class Main(Star):
         except Exception as e:
             logger.error(f"手动注册 vtuber 平台适配器失败: {e}")
 
-        asyncio.create_task(self._start_ws_server())
+        self._ws_server_task: asyncio.Task | None = None
 
         logger.info("VTuber 插件已加载（平台适配器模式）")
+
+    async def initialize(self) -> None:
+        """当插件被激活时调用，启动 WebSocket 服务器"""
+        if self._ws_server_task is None:
+            self._ws_server_task = asyncio.create_task(self._start_ws_server())
+            logger.info("WebSocket 服务器任务已创建")
 
     async def _start_ws_server(self):
         if ws_server_instance:
@@ -861,20 +949,19 @@ class Main(Star):
 
         logger.info("正在清理 VTuber 插件...")
 
+        if self._adapter:
+            try:
+                await self._adapter.terminate()
+                logger.info("VTuber 平台适配器已终止")
+            except Exception as e:
+                logger.error(f"终止 VTuber 平台适配器时出错: {e}")
+
+            if self._adapter in self.context.platform_manager.platform_insts:
+                self.context.platform_manager.platform_insts.remove(self._adapter)
+                logger.info("已从 platform_insts 中移除 VTuber 适配器")
+
         if ws_server_instance:
             await ws_server_instance.stop()
             ws_server_instance = None
-
-        adapter_name = "vtuber"
-
-        if adapter_name in platform_cls_map:
-            del platform_cls_map[adapter_name]
-            logger.debug(f"已从 platform_cls_map 中移除适配器: {adapter_name}")
-
-        for pm in platform_registry[:]:
-            if pm.name == adapter_name:
-                platform_registry.remove(pm)
-                logger.debug(f"已从 platform_registry 中移除适配器: {adapter_name}")
-                break
 
         logger.info("VTuber 插件清理完成")

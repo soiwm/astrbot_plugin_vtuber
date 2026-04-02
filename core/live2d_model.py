@@ -84,7 +84,10 @@ class Live2dModel:
             model_name: 模型名称
         """
         self.model_info = self._lookup_model_info(model_name)
-        self.emo_map = {k.lower(): v for k, v in self.model_info["emotionMap"].items()}
+        emotion_map = self.model_info.get(
+            "emotionMap", self._get_default_model_info()["emotionMap"]
+        )
+        self.emo_map = {k.lower(): v for k, v in emotion_map.items()}
         self.emo_str = " ".join([f"[{key}]," for key in self.emo_map.keys()])
         logger.info(f"Model loaded: {model_name}")
 
@@ -97,9 +100,11 @@ class Live2dModel:
             logger.error(f"Error loading model dictionary: {e}")
             return self._get_default_model_info()
 
-        matched_model = next(
-            (model for model in model_dict if model["name"] == model_name), None
-        )
+        matched_model = None
+        for model in model_dict:
+            if isinstance(model, dict) and model.get("name") == model_name:
+                matched_model = model
+                break
 
         if matched_model is None:
             logger.warning(f"Model {model_name} not found, using default")

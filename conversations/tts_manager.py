@@ -12,7 +12,6 @@ from datetime import datetime
 from astrbot.api import logger
 
 from ..agent.output_types import Actions, DisplayText
-from ..core.live2d_model import Live2dModel
 from ..utils.stream_audio import prepare_audio_payload
 from .types import WebSocketSend
 
@@ -51,19 +50,18 @@ class TTSTaskManager:
 
     def __init__(self, tts_engine=None) -> None:
         self.task_list: list[asyncio.Task] = []
-        self._lock = asyncio.Lock()
         self._payload_queue: asyncio.Queue[tuple[dict, int]] = asyncio.Queue()
         self._sender_task: asyncio.Task | None = None
         self._sequence_counter = 0
         self._next_sequence_to_send = 0
         self.tts_engine = tts_engine or SimpleTTSEngine()
+        self._running = True
 
     async def speak(
         self,
         tts_text: str,
         display_text: DisplayText,
         actions: Actions | None,
-        live2d_model: Live2dModel,
         websocket_send: WebSocketSend,
     ) -> None:
         """
@@ -73,7 +71,6 @@ class TTSTaskManager:
             tts_text: 要合成的文本
             display_text: 在 UI 中显示的文本
             actions: Live2D 模型动作
-            live2d_model: Live2D 模型实例
             websocket_send: WebSocket 发送函数
         """
         if len(re.sub(r'[\s.,!?，。！？\'"』」）】\s]+', "", tts_text)) == 0:
@@ -104,11 +101,18 @@ class TTSTaskManager:
                 tts_text=tts_text,
                 display_text=display_text,
                 actions=actions,
-                live2d_model=live2d_model,
                 sequence_number=current_sequence,
             )
         )
+        task.add_done_callback(self._on_task_done)
         self.task_list.append(task)
+
+    def _on_task_done(self, task: asyncio.Task) -> None:
+        """任务完成回调，从列表中移除已完成的任务"""
+        try:
+            self.task_list.remove(task)
+        except ValueError:
+            pass
 
     async def _process_payload_queue(self, websocket_send: WebSocketSend) -> None:
         """
@@ -117,9 +121,11 @@ class TTSTaskManager:
         """
         buffered_payloads: dict[int, dict] = {}
 
-        while True:
+        while self._running:
             try:
-                payload, sequence_number = await self._payload_queue.get()
+                payload, sequence_number = await asyncio.wait_for(
+                    self._payload_queue.get(), timeout=1.0
+                )
                 buffered_payloads[sequence_number] = payload
 
                 while self._next_sequence_to_send in buffered_payloads:
@@ -132,6 +138,10 @@ class TTSTaskManager:
 
                 self._payload_queue.task_done()
 
+            except asyncio.TimeoutError:
+                if self._payload_queue.empty():
+                    break
+                continue
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -156,7 +166,6 @@ class TTSTaskManager:
         tts_text: str,
         display_text: DisplayText,
         actions: Actions | None,
-        live2d_model: Live2dModel,
         sequence_number: int,
     ) -> None:
         """处理 TTS 生成并排球结果以进行有序发送"""
@@ -195,11 +204,27 @@ class TTSTaskManager:
             file_name_no_ext=file_name,
         )
 
-    def clear(self) -> None:
+    async def clear(self) -> None:
         """清除所有待处理任务并重置状态"""
+        self._running = False
+
+        for task in self.task_list:
+            if not task.done():
+                task.cancel()
+
+        if self.task_list:
+            await asyncio.gather(*self.task_list, return_exceptions=True)
+
         self.task_list.clear()
-        if self._sender_task:
+
+        if self._sender_task and not self._sender_task.done():
             self._sender_task.cancel()
+            try:
+                await self._sender_task
+            except asyncio.CancelledError:
+                pass
+
         self._sequence_counter = 0
         self._next_sequence_to_send = 0
         self._payload_queue = asyncio.Queue()
+        self._running = True

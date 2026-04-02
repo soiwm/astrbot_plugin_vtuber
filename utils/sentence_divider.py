@@ -78,9 +78,11 @@ def segment_text_by_regex(text: str) -> tuple[list[str], str]:
     complete_sentences = []
     remaining_text = text.strip()
 
-    # Create pattern for matching sentences ending with any end punctuation
-    escaped_punctuations = [re.escape(p) for p in END_PUNCTUATIONS]
-    pattern = r"(.*?(?:[" + "|".join(escaped_punctuations) + r"]))"
+    # Sort by length (longest first) to match multi-char punctuations first
+    sorted_punctuations = sorted(END_PUNCTUATIONS, key=len, reverse=True)
+    escaped_punctuations = [re.escape(p) for p in sorted_punctuations]
+    # Use alternation without character class for multi-char support
+    pattern = r"(.*?(?:" + "|".join(escaped_punctuations) + r"))"
 
     while remaining_text:
         match = re.search(pattern, remaining_text)
@@ -223,11 +225,10 @@ class SentenceDivider:
             if next_tag_pos == 0:
                 tag_info, remaining = self._extract_tag(self._buffer)
                 if tag_info:
-                    processed_text = self._buffer[
-                        : len(self._buffer) - len(remaining)
-                    ].strip()
-                    yield SentenceWithTags(text=processed_text, tags=[tag_info])
                     self._buffer = remaining
+                    # Yield empty text with tag info for tag state tracking
+                    # but don't include the tag text itself in output
+                    yield SentenceWithTags(text="", tags=[tag_info])
                     processed_something = True
                     continue
 
@@ -326,7 +327,10 @@ class SentenceDivider:
 
     def _segment_text(self, text: str) -> tuple[list[str], str]:
         """使用配置的方法分割文本"""
-        return segment_text_by_regex(text)
+        if self.segment_method == "regex":
+            return segment_text_by_regex(text)
+        else:
+            return segment_text_by_regex(text)
 
     def reset(self):
         """重置状态"""
