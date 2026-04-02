@@ -326,11 +326,8 @@ class SentenceDivider:
         return "".join(self._full_response)
 
     def _segment_text(self, text: str) -> tuple[list[str], str]:
-        """使用配置的方法分割文本"""
-        if self.segment_method == "regex":
-            return segment_text_by_regex(text)
-        else:
-            return segment_text_by_regex(text)
+        """使用正则表达式分割文本"""
+        return segment_text_by_regex(text)
 
     def reset(self):
         """重置状态"""

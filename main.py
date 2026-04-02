@@ -75,8 +75,6 @@ def _message_chain_to_text(message) -> str:
 class VTuberMessageEvent(AstrMessageEvent):
     """VTuber 平台的消息事件"""
 
-    _emotion_analyzer: EmotionAnalyzer | None = None
-
     def __init__(
         self,
         message_str: str,
@@ -85,7 +83,7 @@ class VTuberMessageEvent(AstrMessageEvent):
         session_id: str,
         ws_client: web.WebSocketResponse,
         emotion_map: dict = None,
-        context=None,
+        emotion_analyzer: EmotionAnalyzer | None = None,
     ) -> None:
         super().__init__(message_str, message_obj, platform_meta, session_id)
         self.ws_client = ws_client
@@ -93,10 +91,7 @@ class VTuberMessageEvent(AstrMessageEvent):
         self._user_message_stored = False
         self._emotion_map = emotion_map or {}
         self._streaming_completed = False
-        self._context = context
-
-        if VTuberMessageEvent._emotion_analyzer is None and context:
-            VTuberMessageEvent._emotion_analyzer = EmotionAnalyzer(context=context)
+        self._emotion_analyzer = emotion_analyzer
 
     async def _store_user_message(self):
         """存储用户消息到 PlatformMessageHistory"""
@@ -299,8 +294,8 @@ class VTuberMessageEvent(AstrMessageEvent):
             logger.error(f"Error reading audio file: {e}")
             return None
 
-    def _is_safe_url(self, url: str) -> bool:
-        """Check if URL is safe to download from (SSRF protection)"""
+    async def _is_safe_url_async(self, url: str) -> bool:
+        """Check if URL is safe to download from (SSRF protection with DNS resolution)"""
         try:
             parsed = urlparse(url)
             if parsed.scheme not in ("http", "https"):
@@ -310,26 +305,49 @@ class VTuberMessageEvent(AstrMessageEvent):
             if not hostname:
                 return False
 
+            blocked_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
+            if hostname.lower() in blocked_hosts:
+                logger.warning(f"Blocked blocked hostname: {hostname}")
+                return False
+
             try:
                 ip = ipaddress.ip_address(hostname)
                 if ip.is_private or ip.is_loopback or ip.is_link_local:
                     logger.warning(f"Blocked private/internal IP access: {hostname}")
                     return False
+                return True
             except ValueError:
                 pass
 
-            blocked_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
-            if hostname.lower() in blocked_hosts:
+            try:
+                loop = asyncio.get_running_loop()
+                addr_infos = await loop.getaddrinfo(hostname, parsed.port or 80)
+
+                for addr_info in addr_infos:
+                    sock_addr = addr_info[4]
+                    ip_str = sock_addr[0]
+                    try:
+                        ip = ipaddress.ip_address(ip_str)
+                        if ip.is_private or ip.is_loopback or ip.is_link_local:
+                            logger.warning(
+                                f"Blocked DNS-resolved private IP: {hostname} -> {ip_str}"
+                            )
+                            return False
+                    except ValueError:
+                        continue
+
+                return True
+            except Exception as dns_error:
+                logger.warning(f"DNS resolution failed for {hostname}: {dns_error}")
                 return False
 
-            return True
         except Exception as e:
             logger.error(f"URL validation error: {e}")
             return False
 
     async def _download_audio_as_base64(self, url: str) -> str | None:
         """Download audio from URL and return as Base64"""
-        if not self._is_safe_url(url):
+        if not await self._is_safe_url_async(url):
             logger.warning(f"Blocked unsafe URL: {url}")
             return None
 
@@ -636,6 +654,7 @@ class VTuberAdapter(Platform):
         self._running = False
         self._stop_event = asyncio.Event()
         self._context: Context | None = None
+        self._emotion_analyzer: EmotionAnalyzer | None = None
 
         self.metadata = PlatformMetadata(
             name="vtuber",
@@ -651,6 +670,8 @@ class VTuberAdapter(Platform):
     def set_context(self, context: Context):
         """Set the context for emotion analysis"""
         self._context = context
+        if context and self._emotion_analyzer is None:
+            self._emotion_analyzer = EmotionAnalyzer(context=context)
 
     def _get_emotion_map(self, session_id: str) -> dict:
         """Get emotion map for the current model"""
@@ -738,7 +759,7 @@ class VTuberAdapter(Platform):
             session_id=session_id,
             ws_client=ws_client,
             emotion_map=emotion_map,
-            context=self._context,
+            emotion_analyzer=self._emotion_analyzer,
         )
 
         logger.info(

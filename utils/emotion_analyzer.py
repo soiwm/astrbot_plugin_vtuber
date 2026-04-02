@@ -6,7 +6,6 @@ Reference: astrbot_plugin_emotionai_pro
 
 import asyncio
 import json
-import re
 from typing import Any
 
 from astrbot.api import logger
@@ -353,22 +352,43 @@ Rules:
     def _parse_llm_result(self, text: str) -> dict[str, int] | None:
         """Parse LLM analysis result"""
         try:
-            json_match = re.search(r"\{[^}]+\}", text, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group())
-                result = {}
-                for emotion in EMOTION_DIMENSIONS:
-                    value = data.get(emotion, 0)
-                    if isinstance(value, (int, float)):
-                        result[emotion] = min(3, max(0, int(value)))
-                    else:
-                        result[emotion] = 0
+            first_brace = text.find("{")
+            if first_brace == -1:
+                return None
 
-                if not any(v > 0 for v in result.values()):
-                    result["neutral"] = 1
+            brace_count = 0
+            last_brace = first_brace
 
-                return result
+            for i in range(first_brace, len(text)):
+                if text[i] == "{":
+                    brace_count += 1
+                elif text[i] == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        last_brace = i
+                        break
 
+            if brace_count != 0:
+                return None
+
+            json_str = text[first_brace : last_brace + 1]
+            data = json.loads(json_str)
+
+            result = {}
+            for emotion in EMOTION_DIMENSIONS:
+                value = data.get(emotion, 0)
+                if isinstance(value, (int, float)):
+                    result[emotion] = min(3, max(0, int(value)))
+                else:
+                    result[emotion] = 0
+
+            if not any(v > 0 for v in result.values()):
+                result["neutral"] = 1
+
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode JSON: {e}")
         except Exception as e:
             logger.error(f"Failed to parse LLM result: {e}")
 
