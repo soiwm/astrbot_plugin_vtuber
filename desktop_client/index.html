@@ -1,4 +1,4 @@
-﻿﻿﻿<!doctype html>
+﻿﻿<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -898,25 +898,32 @@
         }
 
         function playAudio(audioData) {
-          if (!audioElement) {
-            audioElement = new Audio();
+          if (audioElement) {
+            audioElement.pause();
+            audioElement.src = '';
           }
+          audioElement = new Audio();
           audioElement.src = 'data:audio/wav;base64,' + audioData;
           audioElement.play().catch(e => console.error('播放音频失败:', e));
         }
 
         function playAudioFromUrl(url) {
-          if (!audioElement) {
-            audioElement = new Audio();
+          if (audioElement) {
+            audioElement.pause();
+            audioElement.src = '';
           }
+          audioElement = new Audio();
           audioElement.src = url;
           audioElement.play().catch(e => console.error('播放音频失败:', e));
         }
 
         async function playAudioWithLipSync(base64Audio, subtitleText = null) {
-          if (!audioElement) {
-            audioElement = new Audio();
+          if (audioElement) {
+            audioElement.pause();
+            audioElement.src = '';
+            audioElement = null;
           }
+          audioElement = new Audio();
           audioElement.src = 'data:audio/wav;base64,' + base64Audio;
 
           if (subtitleText && settingsState.subtitleEnabled) {

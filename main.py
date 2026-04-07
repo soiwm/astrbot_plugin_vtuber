@@ -166,10 +166,10 @@ class VTuberMessageEvent(AstrMessageEvent):
         audio_base64 = await self._extract_audio_from_message(message)
         text = _message_chain_to_text(message)
 
-        if self._streaming_completed:
+        if self._streaming_completed and text == self._response_text:
             if audio_base64 and not self._audio_sent:
                 logger.info(
-                    f"Sending audio only (streaming completed), length: {len(audio_base64)}"
+                    f"Sending audio only (same text, streaming completed), length: {len(audio_base64)}"
                 )
                 try:
                     payload = {
@@ -180,10 +180,6 @@ class VTuberMessageEvent(AstrMessageEvent):
                     self._audio_sent = True
                 except Exception as e:
                     logger.error(f"Error sending audio to WebSocket client: {e}")
-            elif text:
-                logger.debug(
-                    "send() called again after streaming completed, ignoring duplicate text"
-                )
             return
 
         self._streaming_completed = True
